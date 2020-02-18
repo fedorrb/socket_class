@@ -1,25 +1,23 @@
-#include ".\socketcl.h"
+#include ".\socketcl2.h"
 #include <ctime>
 using namespace std;
 using std::string;
 
-Socket::Socket()
+Socket23::Socket23()
 {
 	errMsg[0] = '\0';
-	recvbufAll[0] = '\0';
 	ptrAddrInfo = NULL;
 	receivedAllData = false;
 	error = false;
 	ConnectSocket = INVALID_SOCKET;
-	def_ip = "10.0.8.181";
-	def_port = "9000";
+	def_ip = "10.0.8.101";
+	def_port = "1861";
 	delay_seconds = 1;
 }
 
-Socket::Socket(string new_ip, string new_port, unsigned short attempt)
+Socket23::Socket23(string new_ip, string new_port, unsigned short attempt)
 {
 	errMsg[0] = '\0';
-	recvbufAll[0] = '\0';
 	ptrAddrInfo = NULL;
 	receivedAllData = false;
 	error = false;
@@ -29,13 +27,13 @@ Socket::Socket(string new_ip, string new_port, unsigned short attempt)
 	delay_seconds = attempt;
 }
 
-Socket::~Socket(void)
+Socket23::~Socket23(void)
 {
 	freeaddrinfo(ptrAddrInfo);
 	WSACleanup();
 }
 
-bool Socket::MakeSocket() {
+bool Socket23::MakeSocket() {
 	error = false;
 	int iResult = 0;
 	WSADATA wsaData;
@@ -51,7 +49,8 @@ bool Socket::MakeSocket() {
 
 	//Creating a Socket for the Client
 	ZeroMemory( &hints, sizeof(hints) );
-	hints.ai_family = AF_UNSPEC;
+	//hints.ai_family = AF_UNSPEC;
+	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
 
@@ -70,8 +69,8 @@ bool Socket::MakeSocket() {
 	return true;
 }
 //*****************************************************************************
-
-bool Socket::SendData(char* sendText)
+//bool Socket::SendData(char* sendText)
+bool Socket23::SendData(vector<string> & allFile)
 {
 	addrinfo *ptr = NULL;
 	int iResult, recvbuflen = DEFAULT_BUFLEN;
@@ -120,21 +119,24 @@ bool Socket::SendData(char* sendText)
 
 		// Sending and Receiving Data on the Client
 		// Send an initial buffer
-		//iResult = send(ConnectSocket, sendText, (int) strlen(sendText), MSG_OOB);
-		iResult = send(ConnectSocket, sendText, (int) strlen(sendText), 0);
-		if (iResult == SOCKET_ERROR)
-		{
-			strcpy(errMsg, "Send failed: ");
-			strcat(errMsg, strerror(WSAGetLastError()));
-			closesocket(ConnectSocket);
-			error = true;
-			return false;
+		int size_v = static_cast<int>(allFile.size());
+		for(int i = 0; i < size_v; i++) {
+			//iResult = send(ConnectSocket, allFile[i].c_str(), (int) strlen(allFile[i].c_str()), 0);
+			iResult = send(ConnectSocket, allFile[i].c_str(), allFile[i].size(), 0);
+			if (iResult == SOCKET_ERROR)
+			{
+				strcpy(errMsg, "Send failed: ");
+				strcat(errMsg, strerror(WSAGetLastError()));
+				closesocket(ConnectSocket);
+				error = true;
+				return false;
+			}
 		}
 	}
 	return (!error);
 }
 
-bool Socket::ShutdownSocket() {
+bool Socket23::ShutdownSocket() {
 	// shutdown the connection for sending since no more data will be sent
 	// the client can still use the ConnectSocket for receiving data
 	if(!error) {
@@ -150,33 +152,51 @@ bool Socket::ShutdownSocket() {
 	return (!error);
 }
 
-bool Socket::ReceiveData() {
+bool Socket23::ReceiveData(vector<string> & receivedLines) {
+	receivedLines.clear();
 	clock_t delay = delay_seconds * CLOCKS_PER_SEC;
 	clock_t start = clock();
 	clock_t finish = clock();
 	char recvbuf[DEFAULT_BUFLEN];
-	recvbufAll[0] = '\0';
+	//recvbufAll[0] = '\0';
 	recvbuf[0] = '\0';
-	int recvbuflen = DEFAULT_BUFLEN;
+	int recvbuflen = DEFAULT_BUFLEN - 2;
 	int iResult = 0;
 	int reeceivedBytes = 0;
+	//int isReady = 10;
+	//char readyBuf[1];
 	if(!error) {
 		// Receive until the peer closes the connection
 		do {
-			iResult = recv(ConnectSocket, recvbuf, recvbuflen, 0);
-			if(iResult > DEFAULT_BUFLEN)
-				iResult = DEFAULT_BUFLEN;
-			reeceivedBytes += iResult;
-			if ( iResult > 0 ) {
-				strncat(recvbufAll, recvbuf, iResult);
-				if(recvbufAll[strlen(recvbufAll)-1] == '\1' && recvbufAll[strlen(recvbufAll)-2] == '\n' && recvbufAll[strlen(recvbufAll)-3] == '\r') {
+			/*
+			if(!reeceivedBytes) {
+				isReady = recv(ConnectSocket, readyBuf, 1, MSG_PEEK);
+				if(!isReady) {
+					Sleep(1000);
+					iResult = 1;
+					continue;
+				}
+			}
+			*/
+
+			try {
+				iResult = recv(ConnectSocket, recvbuf, recvbuflen, 0);
+			} catch (exception& e) {
+				iResult = -1;
+			}
+			if(iResult > recvbuflen)
+				iResult = recvbuflen;
+			//strncpy(recvbufAll, recvbuf, iResult);
+			if(iResult > 0) {
+				reeceivedBytes += iResult;
+				recvbuf[iResult] = '\0';
+				receivedLines.push_back(recvbuf);
+				if(recvbuf[iResult-1] == '\1' && recvbuf[iResult-2] == '\n' && recvbuf[iResult-3] == '\r') {
 					receivedAllData = true;
 					break;
 				}
 			}
 			else if ( iResult == 0 ) {
-				strcpy(errMsg, "Connection closed");
-				error = true;
 				if(!receivedAllData) {
 					finish = clock();
 					if(finish - start < delay) {
@@ -185,6 +205,8 @@ bool Socket::ReceiveData() {
 						continue;
 					}
 				}
+				strcpy(errMsg, "Connection closed");
+				error = true;
 			}
 			else {
 				strcpy(errMsg, "Recv failed with error: ");
@@ -206,10 +228,10 @@ bool Socket::ReceiveData() {
 	return (!error);
 }
 
-bool Socket::IsError() {
+bool Socket23::IsError() {
 	return error;
 }
 
-bool Socket::IsReceiveAll() {
+bool Socket23::IsReceiveAll() {
 	return receivedAllData;
 }

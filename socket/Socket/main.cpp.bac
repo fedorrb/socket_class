@@ -1,0 +1,138 @@
+//	Федорчук Р.Б.
+//--------------------------------------
+// Программа для обмена сообщениями через сокет
+//--------------------------------------
+#include <iostream>
+#include <algorithm>
+#include <vector>
+#include <string>
+#include "klovr.h"
+#include "xstay.h"
+#include "interface.h"
+#include "common.h"
+#include "mat.hpp"
+#include "singleton.h"
+#include <stdlib.h>
+#include "socketcl.h"
+//#define CREATE_BASE 1 //uncomment for create work bases
+#ifdef CREATE_BASE
+#include "jsondnd.h"
+#include "jsondndans.h"
+#endif
+
+using namespace std;
+using std::string;
+
+StayEventProc  BOSForm1;
+void GetOutFilename (const char *in_filename, char* out_filename);
+bool GetJsonIn (const char *in_filename, char* in_json, const char* codeOp);
+void SaveJsonOut (char *out_filename, char* out_json);
+const int MAXMESSAGE = 1024; //#define DEFAULT_BUFLEN 1024 in socketcl.h
+
+USETOOLS;USESHELL;USETECH;USECNG; 
+
+ASOPDMAIN("Обмін через сокет.");
+
+int main (int argc, char** argv)
+{
+	char fileNameOut[MAX_PATH];
+	char jsonOut[MAXMESSAGE];
+	char jsonIn[MAXMESSAGE];
+	jsonOut[0] = '\0';
+	jsonIn[0] = '\0';
+	fileNameOut[0] = '\0';
+	int result = 1;
+
+	INITTOOLS();INITSHELL();INITTECH();INITCNG();
+	if(argc == 3) {
+		string fileNameIn = argv[1]; //файл с входящим сообщением
+		string codeOperation = argv[2];
+		StackReset();
+		GetOutFilename(fileNameIn.c_str(), fileNameOut);
+		SetDateDelim ('.');
+		Initiate();
+		//создание экземпляра класса глобальных переменных
+		Singleton &glb = Singleton::getInstance();
+#ifdef CREATE_BASE
+		Create(B_JsonDnd, RDWR|ANRDWR);
+		Close(B_JsonDnd);
+		Create(B_JsonDndAns, RDWR|ANRDWR);
+		Close(B_JsonDndAns);
+#endif
+
+		if(!StartProcSet(&glb.insCode,NULL,glb.insFio,NULL))
+		{
+			glb.rayon = 2608;
+			glb.uzel = 2608;
+		}
+		else
+		{
+			glb.rayon = fGetTech ("район");
+			glb.uzel = fGetTech ("узел");
+		}
+
+		char recBuf[MAXMESSAGE];
+		char errorMsg[100];
+		errorMsg[0] = '\0';
+
+		if(GetJsonIn(fileNameIn.c_str(), jsonIn, codeOperation.c_str())) {
+
+			Socket *Soc = new Socket("10.0.8.181","9000");
+			Soc->MakeSocket();
+			Soc->SendData(jsonIn);
+			Sleep(1000);
+			Soc->ShutdownSocket();
+			Soc->ReceiveData();
+			if(!Soc->IsError()) {
+				StrForm(recBuf, MAXMESSAGE, Soc->recvbufAll);
+				result = 0;
+				SaveJsonOut(fileNameOut, recBuf);
+			}
+			else {
+				StrForm(errorMsg, 100, Soc->errMsg);
+				SaveJsonOut(fileNameOut, errorMsg);
+			}
+			delete Soc;			
+		}
+		else {
+			StrForm(errorMsg, 100, "Input File Error");
+			SaveJsonOut(fileNameOut, errorMsg);
+		}
+	}
+	Terminate();
+	TERMTOOLS();TERMSHELL();TERMTECH();TERMCNG();
+	return result; 
+}
+
+void GetOutFilename (const char *in_filename, char* out_filename)
+{
+  StrCpy (out_filename, in_filename);
+  out_filename [StrLen (out_filename) - 5] = 0;
+  StrForm (out_filename, MAX_PATH, "%sa.txt", out_filename); //змінити останній символ на a
+}
+
+bool GetJsonIn (const char *in_filename, char* in_json, const char* codeOp) {
+	bool result = false;
+	char buf[MAXMESSAGE];
+	StayFile fJsonIn;
+	fJsonIn = FOpen (in_filename, RD|ANRD); 
+	if (fJsonIn) {
+		FSeek (fJsonIn, 0);
+		FReadText (fJsonIn, buf, MAXMESSAGE);
+		StrForm (in_json, MAXMESSAGE, "%s|%s\r\n\0", codeOp, buf);
+		FClose (fJsonIn);
+		result = true;
+	}
+	return result;
+}
+
+void SaveJsonOut (char *out_filename, char* out_json) {
+	StayFile fJsonOut;
+	int len = 0;
+    fJsonOut=FCreate(out_filename, RDWR);
+	if(fJsonOut) {
+		len = StrLen(out_json);
+		FWrite(fJsonOut,out_json,len); 
+	}
+    FClose(fJsonOut);
+}
